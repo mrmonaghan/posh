@@ -1,24 +1,23 @@
 <#
  .Synopsis
-  Copies Active Directory group membership from one user to another.
+  Copies Active Directory group membership from a user to one or more other users.
 
  .Description
-  Copies Active Directory group membership from one user to another. Also logs errors
-  into a toggleable ShowError list
+  Copies Active Directory group membership from a user to one or more other users.
 
  .Parameter From
-  Selects the user to copy groups from.
+  Selects the user to copy group membership from.
 
- .Parameter ShowErrors
-  Displays any errors encountered at the end of the cmdlet
+ .Parameter To
+  Selects the user or users to apply copied group membership to.
 
  .Example
    # Copy permissions from UserA to UserB
    Copy-ADUserPermissions -From UserA -To UserB
 
  .Example
-   # Copy permissions from UserA to UserB and display errors
-   Copy-ADUserPermissions -From UserA -To UserB -ShowErrors
+   # Copy permissions from UserA to UserB and UserC
+   Copy-ADUserPermissions -From UserA -To UserB, UserC
 #>
 Function Copy-ADUserPermissons {
     [CmdletBinding()]
@@ -28,35 +27,39 @@ Function Copy-ADUserPermissons {
         [object]$From,
 
         [Parameter(Mandatory)]
-        [object]$To,
-
-        [Parameter()]
-        [switch]$ShowErrors
+        [object]$To
 
     )
 
     begin {
         $SourceGroups = Get-ADPrincipalGroupMembership $From
-        $TargetUser = Get-ADUser $To
-        $ErrorArray = New-Object System.Collections.Generic.List[System.Object]
+        $TargetUsersArray = New-Object System.Collections.Generic.List[System.Object]
+        $ResultsArray = New-Object System.Collections.Generic.List[System.Object]
+        foreach ($User in $To) {
+            $TargetUsersArray.Add((Get-ADUser $User))
         }
+
+    }
     process {
         foreach ($Group in $SourceGroups) {
-            try {
-                Add-ADGroupMember -Identity $Group -Member $TargetUser
-            }
-            catch {
-                $ErrorArray.Add($Error)
-            }
+            Add-ADGroupMember -Identity $Group -Members $TargetUsersArray
         }
+
     }
     end {
-        $Results = Get-ADPrincipalGroupMembership $TargetUser | Select-Object -ExpandProperty Name
-        $Username = $TargetUser.Name
-        Write-Host "$Username's new group membership:"
-        Write-Output $Results
-        if ($PSBoundParameters.ContainsKey('ShowErrors')) {
-            Write-Error $ErrorArray
+        foreach ($User in $TargetUsersArray) {
+            $UserResultObject = [PSCustomObject]@{
+                UPN = $User.SamAccountName
+                Status = $null
+            }
+            $TargetUserGroupMembership = Get-ADPrincipalGroupMembership $User
+            $Comparison = Compare-Object -ReferenceObject $SourceGroups -DifferenceObject $TargetUserGroupMembership
+            if (!($Comparison)) {
+                $UserResultObject.Status = 'Complete'
+                }
+            else {$UserResultObject.Status = 'Failed'}
+            $ResultsArray.Add($UserResultObject)
         }
+        Write-Output $ResultsArray
     }
 }
