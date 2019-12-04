@@ -1,2 +1,2 @@
 # posh
-a repo for powershell
+repo for code that is unpolished/undocumented/under development.
